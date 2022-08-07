@@ -9,6 +9,10 @@
 #include <unordered_map>
 #include <array>
 
+#ifdef ENABLE_ASRT
+#include "Probe.h"
+#endif
+
 struct SimpleDMA : public sc_core::sc_module {
 	tlm_utils::simple_initiator_socket<SimpleDMA> isock;
 	tlm_utils::simple_target_socket<SimpleDMA> tsock;
@@ -151,7 +155,11 @@ struct SimpleDMA : public sc_core::sc_module {
 		trans.set_data_ptr(data);
 		trans.set_data_length(num_bytes);
 
+#ifdef ENABLE_ASRT
+		SNOOP_B_TRANSPORT(isock, trans, delay);
+#else
 		isock->b_transport(trans, delay);
+#endif
 
 		if (delay != sc_core::SC_ZERO_TIME)
 			sc_core::wait(delay);

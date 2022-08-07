@@ -52,7 +52,30 @@ public:
 	}
 };
 
+#ifdef ENABLE_ASRT
+#include "spdlog/sinks/basic_file_sink.h"
+#include "spdlog/spdlog.h"
+
+#include "Tlm.cpp"
+#include "Asrt.cpp"
+#include "Kernel.cpp"
+#include "Prop.cpp"
+#include "Types.cpp"
+
+auto sca_log = spdlog::basic_logger_mt("sca_log", "sca.log");
+auto sca_test_log = spdlog::basic_logger_mt("sca_test_log", "sca_test.log");
+#endif
+
 int sc_main(int argc, char **argv) {
+#ifdef ENABLE_ASRT
+  spdlog::get("sca_log")->set_pattern(
+      "[%-12!n] [%L] [%-10!s] [%-15!!] [%-3!#] %v");
+  spdlog::get("sca_test_log")
+      ->set_pattern("[%-12!n] [%L] [%-10!s] [               ] [%-3!#] %v");
+  SPDLOG_LOGGER_INFO(spdlog::get("sca_test_log"), "Running on platform/tiny32-mc/mc_main.cpp");
+
+  Scasrt::Kernel::GetInstance()->reset();
+#endif
 	TinyOptions opt;
 	opt.parse(argc, argv);
 

@@ -108,7 +108,481 @@ std::ostream& operator<<(std::ostream& os, const BasicOptions& o) {
 	return os;
 }
 
+#ifdef ENABLE_ASRT
+#include "spdlog/sinks/basic_file_sink.h"
+#include "spdlog/spdlog.h"
+
+#include "Tlm.cpp"
+#include "Asrt.cpp"
+#include "Kernel.cpp"
+#include "Prop.cpp"
+#include "Types.cpp"
+
+#define MEM_PROBE           "SimpleBus.simple_initiator_socket_0"
+#define CLINT_PROBE         "SimpleBus.simple_initiator_socket_1"
+#define PLIC_PROBE          "SimpleBus.simple_initiator_socket_2"
+#define TERM_PROBE          "SimpleBus.simple_initiator_socket_3"
+#define SENSOR_PROBE        "SimpleBus.simple_initiator_socket_4"
+#define DMA_PROBE           "SimpleBus.simple_initiator_socket_5"
+#define SENSOR2_PROBE       "SimpleBus.simple_initiator_socket_6"
+#define MRAM_PROBE          "SimpleBus.simple_initiator_socket_7"
+#define FLASH_PROBE         "SimpleBus.simple_initiator_socket_8"
+#define ETHERNET_PROBE      "SimpleBus.simple_initiator_socket_9"
+#define DISPLAY_PROBE       "SimpleBus.simple_initiator_socket_10"
+#define SYS_PROBE           "SimpleBus.simple_initiator_socket_11"
+#define DMA_CONNECTOR_PROBE "SimpleDMA-Connector.simple_initiator_socket_0"
+#define DMA_DEVICE_PROBE    "SimpleDMA.simple_initiator_socket_0"
+#define MEM_INTF_PROBE      "MemoryInterface.simple_initiator_socket_0"
+
+auto sca_log = spdlog::basic_logger_mt("sca_log", "sca.log", true);
+auto sca_test_log = spdlog::basic_logger_mt("sca_test_log", "sca_test.log", true);
+#endif
+
 int sc_main(int argc, char **argv) {
+#ifdef ENABLE_ASRT
+  spdlog::get("sca_log")->set_pattern(
+      "[%-12!n] [%L] [%-10!s] [%-15!!] [%-3!#] %v");
+  spdlog::get("sca_test_log")
+      ->set_pattern("[%-12!n] [%L] [%-10!s] [               ] [%-3!#] %v");
+  SPDLOG_LOGGER_INFO(spdlog::get("sca_test_log"), "Running on platform/basic/main.cpp");
+
+  Scasrt::Kernel::GetInstance()->reset();
+
+  if (1) { // MEM interface to LMEM mapping assertion
+    // A section
+    auto mem_to_meml_strt_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto mem_to_meml_stop_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto mem_to_meml_eval_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_BGN) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (/*tlm.address_ >= 0x00000000 &&*/ tlm.address_ < 0x1FFFFFF) { // meml_start_addr
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // B section
+    auto meml_to_mem_strt_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto meml_to_mem_eval_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (history[0]->address_ == tlm.address_ + 0x00000000) { // meml_start_addr
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // Assembly
+    auto mem_intf_to_meml_asrt_B = std::make_shared<Scasrt::Asrt>("mem_intf_to_meml_asrt_B", meml_to_mem_eval_prop_ptr, meml_to_mem_strt_prop_ptr, meml_to_mem_eval_prop_ptr, Scasrt::ASRT_PASS_ON_HOLD_STRONG);
+    auto mem_intf_to_meml_asrt_A = std::make_shared<Scasrt::Asrt>("mem_intf_to_meml_asrt_A", mem_to_meml_eval_prop_ptr, mem_to_meml_strt_prop_ptr, mem_to_meml_stop_prop_ptr, mem_intf_to_meml_asrt_B);
+    Scasrt::Kernel::GetInstance()->RegisterAsrt(mem_intf_to_meml_asrt_A);
+  }
+
+  if (1) { // MEM interface to PLIC mapping assertion
+    // A section
+    auto mem_to_plic_strt_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto mem_to_plic_stop_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto mem_to_plic_eval_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_BGN) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (tlm.address_ >= 0x40000000 && tlm.address_ < 0x41000000) { // plic_start_addr
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // B section
+    auto plic_to_mem_strt_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto plic_to_mem_eval_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (history[0]->address_ == tlm.address_ + 0x40000000) { // plic_start_addr
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // Assembly
+    auto mem_intf_to_plic_asrt_B = std::make_shared<Scasrt::Asrt>("mem_intf_to_plic_asrt_B", plic_to_mem_eval_prop_ptr, plic_to_mem_strt_prop_ptr, plic_to_mem_eval_prop_ptr, Scasrt::ASRT_PASS_ON_HOLD_STRONG);
+    auto mem_intf_to_plic_asrt_A = std::make_shared<Scasrt::Asrt>("mem_intf_to_plic_asrt_A", mem_to_plic_eval_prop_ptr, mem_to_plic_strt_prop_ptr, mem_to_plic_stop_prop_ptr, mem_intf_to_plic_asrt_B);
+    Scasrt::Kernel::GetInstance()->RegisterAsrt(mem_intf_to_plic_asrt_A);
+  }
+
+  if (1) { // Sensor to mem interface mapping assertion
+    // A section
+    auto mem_to_sensor_strt_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto mem_to_sensor_stop_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto mem_to_sensor_eval_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_BGN) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (tlm.address_ >= 0x50000000 && tlm.address_ < 0x50001000) { // sensor_start_addr
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // B section
+    auto sensor_to_mem_strt_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto sensor_to_mem_eval_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (history[0]->address_ == tlm.address_ + 0x50000000) { // sensor_start_addr
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // Assembly
+    auto mem_intf_to_sensor_asrt_B = std::make_shared<Scasrt::Asrt>("mem_intf_to_sensor_asrt_B", sensor_to_mem_eval_prop_ptr, sensor_to_mem_strt_prop_ptr, sensor_to_mem_eval_prop_ptr, Scasrt::ASRT_PASS_ON_HOLD_STRONG);
+    auto mem_intf_to_sensor_asrt_A = std::make_shared<Scasrt::Asrt>("mem_intf_to_sensor_asrt_A", mem_to_sensor_eval_prop_ptr, mem_to_sensor_strt_prop_ptr, mem_to_sensor_stop_prop_ptr, mem_intf_to_sensor_asrt_B);
+    Scasrt::Kernel::GetInstance()->RegisterAsrt(mem_intf_to_sensor_asrt_A);
+  }
+
+  if (1) { // Sensor2 to mem interface mapping assertion
+    // A section
+    auto mem_to_sensor2_strt_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto mem_to_sensor2_stop_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto mem_to_sensor2_eval_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_BGN) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (tlm.address_ >= 0x50002000 && tlm.address_ < 0x50004000) { // sensor2_start_addr
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // B section
+    auto sensor2_to_mem_strt_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR2_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto sensor2_to_mem_eval_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR2_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (history[0]->address_ == tlm.address_ + 0x50002000) { // sensor2_start_addr
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // Assembly
+    auto mem_intf_to_sensor2_asrt_B = std::make_shared<Scasrt::Asrt>("mem_intf_to_sensor2_asrt_B", sensor2_to_mem_eval_prop_ptr, sensor2_to_mem_strt_prop_ptr, sensor2_to_mem_eval_prop_ptr, Scasrt::ASRT_PASS_ON_HOLD_STRONG);
+    auto mem_intf_to_sensor2_asrt_A = std::make_shared<Scasrt::Asrt>("mem_intf_to_sensor2_asrt_A", mem_to_sensor2_eval_prop_ptr, mem_to_sensor2_strt_prop_ptr, mem_to_sensor2_stop_prop_ptr, mem_intf_to_sensor2_asrt_B);
+    Scasrt::Kernel::GetInstance()->RegisterAsrt(mem_intf_to_sensor2_asrt_A);
+  }
+
+  if (1) { // MEM interface to DMA mapping assertion
+    // A section
+    auto mem_to_dma_strt_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto mem_to_dma_stop_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto mem_to_dma_eval_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_BGN) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (tlm.address_ >= 0x70000000 && tlm.address_ < 0x70001000) { // dma_start_addr
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // B section
+    auto dma_to_mem_strt_prop_ptr = std::make_shared<Scasrt::Prop>(DMA_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto dma_to_mem_eval_prop_ptr = std::make_shared<Scasrt::Prop>(DMA_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (history[0]->address_ == tlm.address_ + 0x70000000) { // dma_start_addr
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // Assembly
+    auto mem_intf_to_dma_asrt_B = std::make_shared<Scasrt::Asrt>("mem_intf_to_dma_asrt_B", dma_to_mem_eval_prop_ptr, dma_to_mem_strt_prop_ptr, dma_to_mem_eval_prop_ptr, Scasrt::ASRT_PASS_ON_HOLD_STRONG);
+    auto mem_intf_to_dma_asrt_A = std::make_shared<Scasrt::Asrt>("mem_intf_to_dma_asrt_A", mem_to_dma_eval_prop_ptr, mem_to_dma_strt_prop_ptr, mem_to_dma_stop_prop_ptr, mem_intf_to_dma_asrt_B);
+    Scasrt::Kernel::GetInstance()->RegisterAsrt(mem_intf_to_dma_asrt_A);
+  }
+
+  if (1) { // MEM interface to TERM mapping assertion
+    // A section
+    auto mem_to_term_strt_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto mem_to_term_stop_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto mem_to_term_eval_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_BGN) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (tlm.address_ >= 0x20000000 && tlm.address_ < 0x20000010) { // term_start_addr
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // B section
+    auto term_to_mem_strt_prop_ptr = std::make_shared<Scasrt::Prop>(TERM_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto term_to_mem_eval_prop_ptr = std::make_shared<Scasrt::Prop>(TERM_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (history[0]->address_ == tlm.address_ + 0x20000000) { // term_start_addr
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // Assembly
+    auto mem_intf_to_term_asrt_B = std::make_shared<Scasrt::Asrt>("mem_intf_to_term_asrt_B", term_to_mem_eval_prop_ptr, term_to_mem_strt_prop_ptr, term_to_mem_eval_prop_ptr, Scasrt::ASRT_PASS_ON_HOLD_STRONG);
+    auto mem_intf_to_term_asrt_A = std::make_shared<Scasrt::Asrt>("mem_intf_to_term_asrt_A", mem_to_term_eval_prop_ptr, mem_to_term_strt_prop_ptr, mem_to_term_stop_prop_ptr, mem_intf_to_term_asrt_B);
+    Scasrt::Kernel::GetInstance()->RegisterAsrt(mem_intf_to_term_asrt_A);
+  }
+
+  if (1) { // DMA interrupt propagation assertion
+    // A section
+    auto dma_strt_prop_ptr = std::make_shared<Scasrt::Prop>(DMA_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto dma_stop_prop_ptr = std::make_shared<Scasrt::Prop>(DMA_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto dma_eval_prop_ptr = std::make_shared<Scasrt::Prop>(DMA_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (tlm.address_ == 0xC && tlm.data_i_ == 0x1) {
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // B section
+    auto int_rcv_strt_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto int_rcv_eval_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+      if (tlm.address_ == 0x00200004 && tlm.data_i_ == 0x4) {
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // Assembly
+    auto dma_int_asrt_B =  std::make_shared<Scasrt::Asrt>("dma_int_asrt_B", int_rcv_eval_prop_ptr, int_rcv_strt_prop_ptr, int_rcv_eval_prop_ptr, Scasrt::ASRT_PASS_ON_HOLD_STRONG);
+    auto dma_int_asrt_A =  std::make_shared<Scasrt::Asrt>("dma_int_asrt_A", dma_eval_prop_ptr, dma_strt_prop_ptr, dma_stop_prop_ptr, dma_int_asrt_B);
+    Scasrt::Kernel::GetInstance()->RegisterAsrt(dma_int_asrt_A);
+  }
+
+  if (1) { // Sensor interrupt propagation assertion
+    // A section
+    auto sensorA_strt_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto sensorA_stop_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto sensorA_eval_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (tlm.address_ == 0x80 && tlm.data_i_ != 0x0) {
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // B section
+    auto sensorB_strt_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto sensorB_eval_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (tlm.address_ == 0x84 && tlm.data_i_ != 0x0) {
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // C section
+    auto int_rcv_strt_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto int_rcv_stop_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto int_rcv_eval_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+      if (tlm.address_ == 0x00200004 && tlm.data_i_ == 0x2) {
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // Assembly
+    auto sensor_int_asrt_C =  std::make_shared<Scasrt::Asrt>("sensor_int_asrt_C", int_rcv_eval_prop_ptr, int_rcv_strt_prop_ptr, int_rcv_stop_prop_ptr, Scasrt::ASRT_PASS_ON_HOLD_STRONG);
+    auto sensor_int_asrt_B =  std::make_shared<Scasrt::Asrt>("sensor_int_asrt_B", sensorB_eval_prop_ptr, sensorB_strt_prop_ptr, sensorB_eval_prop_ptr, sensor_int_asrt_C);
+    auto sensor_int_asrt_A =  std::make_shared<Scasrt::Asrt>("sensor_int_asrt_A", sensorA_eval_prop_ptr, sensorA_strt_prop_ptr, sensorA_stop_prop_ptr, sensor_int_asrt_B);
+    Scasrt::Kernel::GetInstance()->RegisterAsrt(sensor_int_asrt_A);
+  }
+
+  if (1) { // Sensor2 interrupt propagation assertion
+    // A section
+    auto sensor2A_strt_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR2_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto sensor2A_stop_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR2_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto sensor2A_eval_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR2_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (tlm.address_ == 0x80 && tlm.data_i_ != 0x0) {
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // B section
+    auto sensor2B_strt_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR2_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto sensor2B_eval_prop_ptr = std::make_shared<Scasrt::Prop>(SENSOR2_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (tlm.address_ == 0x84 && tlm.data_i_ != 0x0) {
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // C section
+    auto int_rcv_strt_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto int_rcv_stop_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto int_rcv_eval_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+      if (tlm.address_ == 0x00200004 && tlm.data_i_ == 0x5) {
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // Assembly
+    auto sensor2_int_asrt_C =  std::make_shared<Scasrt::Asrt>("sensor2_int_asrt_C", int_rcv_eval_prop_ptr, int_rcv_strt_prop_ptr, int_rcv_stop_prop_ptr, Scasrt::ASRT_PASS_ON_HOLD_STRONG);
+    auto sensor2_int_asrt_B =  std::make_shared<Scasrt::Asrt>("sensor2_int_asrt_B", sensor2B_eval_prop_ptr, sensor2B_strt_prop_ptr, sensor2B_eval_prop_ptr, sensor2_int_asrt_C);
+    auto sensor2_int_asrt_A =  std::make_shared<Scasrt::Asrt>("sensor2_int_asrt_A", sensor2A_eval_prop_ptr, sensor2A_strt_prop_ptr, sensor2A_stop_prop_ptr, sensor2_int_asrt_B);
+    Scasrt::Kernel::GetInstance()->RegisterAsrt(sensor2_int_asrt_A);
+  }
+
+  if (1) { // Timer interrupt propagation assertion
+    // A section
+    auto int_rcv_strt_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto int_rcv_stop_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto int_rcv_eval_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+      if (tlm.address_ == 0x00200004 && tlm.data_i_ == 0x3) {
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // Assembly
+    auto timer_int_asrt_A =  std::make_shared<Scasrt::Asrt>("timer_int_asrt_A", int_rcv_eval_prop_ptr, int_rcv_strt_prop_ptr, int_rcv_stop_prop_ptr, Scasrt::ASRT_PASS_ON_HOLD_STRONG);
+    Scasrt::Kernel::GetInstance()->RegisterAsrt(timer_int_asrt_A);
+  }
+
+  if (1) { // Spurious DMA interrupt assertion
+    // A section
+    auto spurious_dma_strt_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto spurious_dma_stop_prop_ptr = std::make_shared<Scasrt::Prop>(DMA_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      if (tlm.address_ == 0xC && tlm.data_i_ == 0x1) {
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+    auto spurious_dma_eval_prop_ptr = std::make_shared<Scasrt::Prop>(PLIC_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+      if (tlm.address_ == 0x00200004 && tlm.data_i_ == 0x4) {
+        return Scasrt::PROP_TRUE;
+      } else {
+        return Scasrt::PROP_FALSE;
+      }
+    });
+
+    // Assembly
+    auto spurious_dma_int_asrt_A =  std::make_shared<Scasrt::Asrt>("spurious_dma_int_asrt_B", spurious_dma_eval_prop_ptr, spurious_dma_strt_prop_ptr, spurious_dma_stop_prop_ptr, Scasrt::ASRT_PASS_ON_NOTHOLD);
+    Scasrt::Kernel::GetInstance()->RegisterAsrt(spurious_dma_int_asrt_A);
+  }
+
+  if (1) { // MEM interface to BAD mapping assertion
+    // A section
+    auto mem_to_bad_strt_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto mem_to_bad_stop_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto mem_to_bad_eval_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_INTF_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_BGN) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      return Scasrt::PROP_TRUE;
+    });
+
+    // B section
+    auto bad_to_mem_strt_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_PROBE, L_PROP { return Scasrt::PROP_TRUE; });
+    auto bad_to_mem_stop_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_PROBE, L_PROP { return Scasrt::PROP_FALSE; });
+    auto bad_to_mem_eval_prop_ptr = std::make_shared<Scasrt::Prop>(MEM_PROBE, L_PROP {
+      if (tlm.snoop_phase_ != Scasrt::B_TRANSPORT_END || tlm.response_status_ != tlm::TLM_OK_RESPONSE) {
+        return Scasrt::PROP_SKIP;
+      }
+
+      return Scasrt::PROP_FALSE;
+    });
+
+    // Assembly
+    auto mem_intf_to_bad_asrt_B = std::make_shared<Scasrt::Asrt>("mem_intf_to_bad_asrt_B", bad_to_mem_eval_prop_ptr, bad_to_mem_strt_prop_ptr, bad_to_mem_stop_prop_ptr, Scasrt::ASRT_PASS_ON_HOLD_STRONG);
+    auto mem_intf_to_bad_asrt_A = std::make_shared<Scasrt::Asrt>("mem_intf_to_bad_asrt_A", mem_to_bad_eval_prop_ptr, mem_to_bad_strt_prop_ptr, mem_to_bad_stop_prop_ptr, mem_intf_to_bad_asrt_B);
+    Scasrt::Kernel::GetInstance()->RegisterAsrt(mem_intf_to_bad_asrt_A);
+  }
+
+  Scasrt::Kernel::GetInstance()->Cleanup();
+#endif
+
 	BasicOptions opt;
 	opt.parse(argc, argv);
 
@@ -224,6 +698,10 @@ int sc_main(int argc, char **argv) {
 	}
 
 	sc_core::sc_start();
+
+#ifdef ENABLE_ASRT
+  Scasrt::Kernel::GetInstance()->RunEot();
+#endif
 
 	core.show();
 

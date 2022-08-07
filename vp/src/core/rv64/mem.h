@@ -4,6 +4,10 @@
 #include "iss.h"
 #include "mmu.h"
 
+#ifdef ENABLE_ASRT
+#include "Probe.h"
+#endif
+
 namespace rv64 {
 
 /* For optimization, use DMI to fetch instructions */
@@ -59,7 +63,11 @@ struct CombinedMemoryInterface : public sc_core::sc_module,
 
 		sc_core::sc_time local_delay = quantum_keeper.get_local_time();
 
+#ifdef ENABLE_ASRT
+		SNOOP_B_TRANSPORT(isock, trans, local_delay);
+#else
 		isock->b_transport(trans, local_delay);
+#endif
 
 		assert(local_delay >= quantum_keeper.get_local_time());
 		quantum_keeper.set(local_delay);

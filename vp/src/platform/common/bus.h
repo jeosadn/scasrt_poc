@@ -8,6 +8,10 @@
 #include <tlm_utils/simple_target_socket.h>
 #include <systemc>
 
+#ifdef ENABLE_ASRT
+#include "Probe.h"
+#endif
+
 struct PortMapping {
 	uint64_t start;
 	uint64_t end;
@@ -57,7 +61,11 @@ struct SimpleBus : sc_core::sc_module {
 		}
 
 		trans.set_address(ports[id]->global_to_local(addr));
+#ifdef ENABLE_ASRT
+		SNOOP_B_TRANSPORT(isocks[id], trans, delay);
+#else
 		isocks[id]->b_transport(trans, delay);
+#endif
 	}
 
 	unsigned transport_dbg(tlm::tlm_generic_payload &trans) {
@@ -92,7 +100,11 @@ struct PeripheralWriteConnector : sc_core::sc_module {
 	void transport(tlm::tlm_generic_payload &trans, sc_core::sc_time &delay) {
 		bus_lock->wait_until_unlocked();
 
+#ifdef ENABLE_ASRT
+		SNOOP_B_TRANSPORT(isock, trans, delay);
+#else
 		isock->b_transport(trans, delay);
+#endif
 
 		if (trans.get_response_status() == tlm::TLM_ADDRESS_ERROR_RESPONSE)
 			throw std::runtime_error("unable to find target port for address " + std::to_string(trans.get_address()));

@@ -12,6 +12,9 @@ set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wno-unused-parameter") # TODO: -Wpedantic
 set(CMAKE_CXX_FLAGS_DEBUG "-g3")        #"-fsanitize=address -fno-omit-frame-pointer"
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
+add_compile_options(-I/home/josea/my_repos/SCA_code/sca/external -I/home/josea/my_repos/SCA_code/sca/inc -I/home/josea/my_repos/SCA_code/sca/src)
+add_compile_options(-DENABLE_ASRT)
+
 # Allows running tests without invoking `make install` first.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
