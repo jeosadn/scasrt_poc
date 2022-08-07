@@ -30,7 +30,7 @@ int main() {
 	*SENSOR_SCALER_REG_ADDR = 5;
 	*SENSOR_FILTER_REG_ADDR = 2;
 
-	for (int i=0; i<3; ++i)
+	for (int i=0; i<ITER; ++i)
 		dump_sensor_data();
 
 	return 0;

@@ -26,23 +26,25 @@ void init() {
 }
 
 int main() {
-	uint8_t src[32] = { [ 0 ... 31 ] = 70 };
-	uint8_t dst[32] = { 0 };
-	
-	dma_completed = 0;
-	*DMA_SRC_ADDR = (uint32_t)(&src[0]);
-	*DMA_DST_ADDR = (uint32_t)(&dst[0]);
-	*DMA_LEN_ADDR = 32;
-	*DMA_OP_ADDR  = DMA_OP_MEMCPY;
-	
-	while (!dma_completed) {
-		asm volatile ("wfi");
-	}
-	
-	for (int i=0; i<32; ++i) {
-		*TERMINAL_ADDR = dst[i];
-	}
-	*TERMINAL_ADDR = '\n';
+    for (int i = 0; i < ITER; i++) {
+      uint8_t src[32] = { [ 0 ... 31 ] = 70 };
+      uint8_t dst[32] = { 0 };
 
-	return 0;
+      dma_completed = 0;
+      *DMA_SRC_ADDR = (uint32_t)(&src[0]);
+      *DMA_DST_ADDR = (uint32_t)(&dst[0]);
+      *DMA_LEN_ADDR = 32;
+      *DMA_OP_ADDR  = DMA_OP_MEMCPY;
+
+      while (!dma_completed) {
+          asm volatile ("wfi");
+      }
+
+      for (int i=0; i<32; ++i) {
+          *TERMINAL_ADDR = dst[i];
+      }
+      *TERMINAL_ADDR = '\n';
+    }
+
+    return 0;
 }

@@ -1,5 +1,5 @@
 all : main.c irq.c irq.h bootstrap.S
-	riscv32-unknown-elf-gcc -DITER=$(ITER) main.c irq.c bootstrap.S -o main -march=rv32i -mabi=ilp32 -nostartfiles -Wl,--no-relax
+	riscv32-unknown-elf-gcc -DITER=$(ITER) main.c irq.c bootstrap.S -o main -march=rv32imac -mabi=ilp32 -nostartfiles -Wl,--no-relax
 
 prof:
 	rm -rf gmon.out prof.results
@@ -7,13 +7,16 @@ prof:
 	gprof ../../vp/build/bin/riscv-vp gmon.out > prof.results
 	
 sim: all
-	riscv-vp-clean main
+	riscv-vp-clean --intercept-syscalls main
 	
 asrt: all
-	riscv-vp-asrt main
+	riscv-vp-asrt --intercept-syscalls main
 
 fast: all
-	riscv-vp-fast main
+	riscv-vp-fast --intercept-syscalls main
+	
+bad: all
+	riscv-vp-bad --intercept-syscalls main
 	
 dump-elf: all
 	riscv32-unknown-elf-readelf -a main
